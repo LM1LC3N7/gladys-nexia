@@ -20,7 +20,10 @@ import { CODES, NexiaError } from './errors.js';
 import { httpRequest } from './http.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-const SESSION_REFUSED = new Set([301, 302, 303, 307, 308, 401, 403]);
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+const SESSION_REFUSED = new Set([...REDIRECTS, 401, 403]);
+/** The hosts of the three brands: the same cloud (the library's resolve_url). */
+const BRAND_HOSTS = new Set(Object.values(BRANDS).map((b) => new URL(b.root).host));
 
 export class NexiaClient {
   /**
@@ -83,14 +86,13 @@ export class NexiaClient {
   }
 
   /** One request; HTTP 429 and 5xx become errors here, the rest is the caller's. */
-  async call({ method = 'GET', url, body, extraHeaders = {}, deadline, onSent }) {
+  async call({ method = 'GET', url, body, extraHeaders = {}, deadline }) {
     const response = await this.request({
       method,
       url,
       headers: { ...this.headers(body), ...extraHeaders },
       body,
       timeoutMs: this.timeout(deadline),
-      onSent,
     });
     if (response.status === 429) {
       throw new NexiaError(CODES.RATE_LIMITED, {
@@ -117,33 +119,49 @@ export class NexiaClient {
     if (now < this.nextLoginAt) {
       throw new NexiaError(CODES.SESSION, { retryAt: this.nextLoginAt, notSent: true });
     }
+    const previous = { loginAt: this.loginAt, nextLoginAt: this.nextLoginAt };
     this.loginAt = now;
     this.nextLoginAt = now + this.loginSpacing;
     this.invalidate();
-    const response = await this.call({
-      method: 'POST',
-      url: `${this.mobile}/accounts/sign_in`,
-      body: {
-        login: this.email,
-        password: this.password,
-        children: [],
-        childSchemas: [],
-        commitModel: null,
-        nextHref: null,
-        device_uuid: this.deviceUuid,
-        device_name: DEVICE_NAME,
-        app_version: APP_VERSION,
-        is_commercial: false,
-      },
-      deadline,
-    });
-    // 401 / 403, a redirect (to the login page or to "forgotten credentials"),
-    // or `success: false`: the e-mail or the password is refused.
-    if (SESSION_REFUSED.has(response.status)) {
+    let response;
+    try {
+      response = await this.call({
+        method: 'POST',
+        url: `${this.mobile}/accounts/sign_in`,
+        body: {
+          login: this.email,
+          password: this.password,
+          children: [],
+          childSchemas: [],
+          commitModel: null,
+          nextHref: null,
+          device_uuid: this.deviceUuid,
+          device_name: DEVICE_NAME,
+          app_version: APP_VERSION,
+          is_commercial: false,
+        },
+        deadline,
+      });
+    } catch (err) {
+      // No answer (network, timeout, 5xx, 429): no sign-in happened, the
+      // spacing is not used up (the app's own retry delay paces the next try).
+      if (err?.code !== CODES.RATE_LIMITED) Object.assign(this, previous);
+      throw err;
+    }
+    // Any 4xx but 408 (a redirect to the login page or to "forgotten
+    // credentials", 401, 403, 422...), or `success: false`: the e-mail or the
+    // password is refused. Never tried again in a loop: the account may lock.
+    if (
+      REDIRECTS.has(response.status) ||
+      (response.status >= 400 && response.status < 500 && response.status !== 408)
+    ) {
       throw new NexiaError(CODES.REFUSED, { status: response.status });
     }
-    if (response.status !== 200) throw new NexiaError(CODES.HTTP, { status: response.status });
-    if (!isObject(response.json)) throw new NexiaError(CODES.BAD_ANSWER, { status: 200 });
+    if (response.status !== 200) {
+      Object.assign(this, previous);
+      throw new NexiaError(CODES.HTTP, { status: response.status });
+    }
+    if (!isObject(response.json)) this.backOff(CODES.BAD_ANSWER, 200);
     if (response.json.success !== true) throw new NexiaError(CODES.REFUSED, { status: 200 });
     const result = response.json.result;
     const mobileId = result?.mobile_id;
@@ -153,7 +171,8 @@ export class NexiaClient {
       typeof apiKey !== 'string' ||
       apiKey === ''
     ) {
-      throw new NexiaError(CODES.BAD_ANSWER, { status: 200 });
+      // Accepted, but not usable: no new sign-in at each reading.
+      this.backOff(CODES.BAD_ANSWER, 200);
     }
     this.mobileId = mobileId;
     this.apiKey = apiKey;
@@ -168,10 +187,8 @@ export class NexiaClient {
       body: { app_version: APP_VERSION, device_uuid: this.deviceUuid },
       deadline,
     });
-    if (SESSION_REFUSED.has(response.status)) {
-      this.invalidate();
-      throw new NexiaError(CODES.SESSION, { status: response.status, retryAt: this.nextLoginAt });
-    }
+    // Refused right after an accepted sign-in: the spacing doubles.
+    if (SESSION_REFUSED.has(response.status)) this.backOff(CODES.SESSION, response.status);
     if (response.status !== 200) throw new NexiaError(CODES.HTTP, { status: response.status });
     const children = response.json?.result?._links?.child;
     const data = Array.isArray(children)
@@ -189,13 +206,19 @@ export class NexiaClient {
    */
   async house({ deadline } = {}) {
     if (!this.hasSession) await this.login({ deadline });
+    // A session without a house (the house lookup failed after the sign-in):
+    // look it up again, never /houses/null.
+    if (!this.houseId) await this.findHouse({ deadline });
     let response = await this.getHouse({ deadline, conditional: true });
     if (SESSION_REFUSED.has(response.status)) {
-      if (this.now() - this.loginAt < INTERVALS.LOGIN_SPACING_MS) this.freshRefused(response);
+      if (this.now() - this.loginAt < INTERVALS.LOGIN_SPACING_MS) {
+        this.backOff(CODES.SESSION, response.status);
+      }
       this.invalidate();
       await this.login({ deadline });
+      if (!this.houseId) await this.findHouse({ deadline });
       response = await this.getHouse({ deadline, conditional: true });
-      if (SESSION_REFUSED.has(response.status)) this.freshRefused(response);
+      if (SESSION_REFUSED.has(response.status)) this.backOff(CODES.SESSION, response.status);
     }
     if (response.status === 304) {
       if (this.cache) return { json: this.cache, changed: false };
@@ -215,17 +238,20 @@ export class NexiaClient {
   }
 
   /**
-   * A session refused minutes after its login: a new login would not help
-   * now. The spacing of the logins doubles (up to 6 h); always throws.
+   * A sign-in that was accepted but did not give a working session (refused
+   * minutes after it, or an answer that cannot be used): a new sign-in would
+   * not help now. The spacing of the sign-ins doubles (up to 6 h); always
+   * throws.
    */
-  freshRefused(response) {
+  backOff(code, status) {
     this.invalidate();
     this.loginSpacing = Math.min(this.loginSpacing * 2, INTERVALS.LOGIN_SPACING_MAX_MS);
     this.nextLoginAt = this.loginAt + this.loginSpacing;
-    throw new NexiaError(CODES.SESSION, { status: response.status, retryAt: this.nextLoginAt });
+    throw new NexiaError(code, { status, retryAt: this.nextLoginAt });
   }
 
   getHouse({ deadline, conditional }) {
+    if (!this.houseId) throw new NexiaError(CODES.BAD_ANSWER, { notSent: true });
     const extraHeaders =
       conditional && this.etag && this.cache ? { 'If-None-Match': this.etag } : {};
     return this.call({
@@ -245,8 +271,18 @@ export class NexiaClient {
       try {
         const url = new URL(action.href);
         const method = String(action.method ?? 'POST').toUpperCase();
-        if (url.origin === this.origin && url.pathname.startsWith('/mobile/') && !url.username) {
-          if (method === 'POST' || method === 'PUT') return { url: url.href, method };
+        // On one of the three hosts (the cloud may name another brand's):
+        // the path is kept, the host becomes the brand's, as the library's
+        // resolve_url does. Anywhere else: never called.
+        if (
+          url.protocol === 'https:' &&
+          BRAND_HOSTS.has(url.host) &&
+          url.pathname.startsWith('/mobile/') &&
+          !url.username &&
+          !url.password &&
+          (method === 'POST' || method === 'PUT')
+        ) {
+          return { url: `${this.origin}${url.pathname}${url.search}`, method };
         }
       } catch {
         // not an address: the fallback below
@@ -261,11 +297,11 @@ export class NexiaClient {
    * zone or thermostat when the cloud returns it, else null). A refused
    * session is an error (nothing applied): the next reading logs in again.
    */
-  async send({ url, method, payload, deadline, onSent }) {
+  async send({ url, method, payload, deadline }) {
     if (!this.hasSession) throw new NexiaError(CODES.SESSION, { notSent: true });
     const target = new URL(url);
     if (target.origin !== this.origin) throw new NexiaError(CODES.BAD_URL, { notSent: true });
-    const response = await this.call({ method, url: target.href, body: payload, deadline, onSent });
+    const response = await this.call({ method, url: target.href, body: payload, deadline });
     if (SESSION_REFUSED.has(response.status)) {
       this.invalidate();
       throw new NexiaError(CODES.SESSION, { status: response.status });

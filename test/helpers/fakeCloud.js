@@ -49,6 +49,8 @@ export function createFakeCloud({
     requests: [],
     /** Queued answers: { match(request) -> bool, status, retryAfterMs?, once? }. */
     failures: [],
+    /** Timers of the test: a held command times out on them after its timeoutMs. */
+    timers: null,
     /** A promise the next command waits for (slow cloud). */
     hold: null,
     /** Called on every request (a test advances its clock there). */
@@ -82,7 +84,7 @@ export function createFakeCloud({
     cloud.requests.push(entry);
     await cloud.onRequest?.(entry);
     if (cloud.unreachable) {
-      throw new NexiaError('network');
+      throw new NexiaError('network', { notSent: true });
     }
     onSent?.();
     const failure = cloud.failures.find((f) => f.match(entry));
@@ -122,7 +124,18 @@ export function createFakeCloud({
       return json(200, JSON.parse(JSON.stringify(cloud.house)), { etag: cloud.etag });
     }
     if (method === 'POST' || method === 'PUT') {
-      if (cloud.hold) await cloud.hold;
+      if (cloud.hold) {
+        // A slow cloud: the request times out like the real one (timeoutMs), on the test's timers.
+        let handle;
+        const timedOut = new Promise((_, reject) => {
+          handle = cloud.timers?.setTimeout(() => reject(new NexiaError('timeout')), timeoutMs);
+        });
+        try {
+          await Promise.race([cloud.hold, timedOut]);
+        } finally {
+          cloud.timers?.clearTimeout(handle);
+        }
+      }
       return command(path, body);
     }
     return json(404, null);

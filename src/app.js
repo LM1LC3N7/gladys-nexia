@@ -33,6 +33,7 @@ import {
   LIMITS,
   REFUSED_RETRIES_MS,
   SETPOINT_BOUNDS,
+  SETPOINT_STEP,
   THERMOSTAT_FEATURES as TF,
   ZONE_FEATURES as ZF,
 } from './constants.js';
@@ -41,6 +42,7 @@ import {
   buildThermostatDevice,
   buildZoneDevice,
   convert,
+  convertExact,
   createdDevices,
   fanOptions,
   mergeWithCreated,
@@ -229,6 +231,18 @@ export class NexiaApp {
     }
     const account = accountKey(config);
     const refusal = this.state.refusal;
+    const since = this.now() - (refusal?.at ?? -Infinity);
+    if (force && refusal?.account === account && since < INTERVALS.FORCED_LOGIN_SPACING_MS) {
+      // A refusal moments ago: the user's try waits a little (a quick series
+      // of wrong passwords may lock the account).
+      const wait = INTERVALS.FORCED_LOGIN_SPACING_MS - since;
+      this.blocked = true;
+      await this.setStatus(false, T.status.refusedRecently(wait));
+      this.schedule(wait, () =>
+        generation === this.generation ? this.start(this.rawConfig, { force: true }) : undefined,
+      );
+      return;
+    }
     if (refusal && (force || refusal.account !== account)) {
       // The user asked, or another account: the old refusal does not apply.
       this.state.refusal = null;
@@ -261,7 +275,9 @@ export class NexiaApp {
   async reportRefusal(generation) {
     const nextAt = this.state.refusal?.nextAt ?? null;
     const nextIn = nextAt === null ? null : Math.max(0, nextAt - this.now());
-    await this.setStatus(false, T.status.refused(nextIn));
+    // Automatic tries left, this next one included.
+    const left = Math.max(0, REFUSED_RETRIES_MS.length - (this.state.refusal?.tries ?? 1) + 1);
+    await this.setStatus(false, T.status.refused(nextIn, left));
     if (nextIn !== null) {
       this.schedule(nextIn, () =>
         generation === this.generation ? this.start(this.rawConfig) : undefined,
@@ -370,9 +386,12 @@ export class NexiaApp {
       message = T.status.busy(delay);
     } else if (err?.code === CODES.SESSION) {
       delay = Math.max(INTERVALS.POLL_MS, (err.retryAt ?? 0) - this.now());
-      message = T.status.session(delay);
+      // With a status: refused just after a sign-in; without: the spacing of
+      // the sign-ins is not over yet.
+      message = err.status ? T.status.session(delay) : T.status.loginWait(delay);
     } else {
-      delay = this.retryDelay;
+      // A sign-in whose answer could not be used sets its own wait (retryAt).
+      delay = Math.max(this.retryDelay, (err?.retryAt ?? 0) - this.now());
       this.retryDelay = Math.min(this.retryDelay * 2, INTERVALS.RETRY_MAX_MS);
       message = T.status.unreachable(err, delay);
     }
@@ -402,6 +421,7 @@ export class NexiaApp {
     this.state.refusal = {
       account,
       tries,
+      at: this.now(),
       nextAt: wait === undefined ? null : this.now() + wait,
     };
     await this.saveState();
@@ -681,10 +701,13 @@ export class NexiaApp {
     const client = this.client;
     if (!client || this.blocked || !this.online) throw new Error(T.errors.notConnected);
     const generation = this.generation;
+    // job.tail: the request still in flight once Gladys was answered (4.3 s);
+    // the next command waits for its real end, not only for the answer.
+    const job = { tail: null };
     const run = this.commands.then(() =>
-      this.command(received, { client, generation, ...request }),
+      this.command(received, { client, generation, job, ...request }),
     );
-    this.commands = run.catch(() => {});
+    this.commands = run.catch(() => {}).then(() => job.tail);
     return run;
   }
 
@@ -716,9 +739,13 @@ export class NexiaApp {
   }
 
   async command(received, request) {
-    const { client, generation, parsed } = request;
+    const { client, generation, parsed, job } = request;
     this.activeCommands += 1;
     this.stateVersion += 1;
+    const end = () => {
+      this.stateVersion += 1;
+      this.activeCommands -= 1;
+    };
     try {
       this.stillValid(request);
       const deadline = received + COMMAND_BUDGET_MS;
@@ -746,10 +773,11 @@ export class NexiaApp {
       if (deadline - this.now() < COMMAND_MIN_SEND_MS) throw new CommandError(T.errors.tooSlow);
       // The last check before acting: the user may have changed things meanwhile.
       this.stillValid(request);
-      await this.send({ ...request, plan, thermostat, zone, received, deadline });
+      await this.send({ ...request, plan, thermostat, zone, received });
     } finally {
-      this.stateVersion += 1;
-      this.activeCommands -= 1;
+      // A request still in flight keeps the readings from overwriting its result.
+      if (job.tail) job.tail.then(end);
+      else end();
     }
   }
 
@@ -774,9 +802,9 @@ export class NexiaApp {
       if (zone.mode === wanted) return null;
       return {
         action: zone.actions.mode,
-        fallback: `xxl_zones/${zone.rawId}/zone_mode`,
-        // The value as this zone lists it ("HEAT" on the XL series, "heat" on the UX360).
-        payload: { value: option?.value ?? wanted },
+        fallback: this.zoneFallback(zone, 'zone_mode'),
+        // Upper case, as the library sends it to every model (UX360 included).
+        payload: { value: wanted },
       };
     }
     const option = fanOptions(thermostat).find((o) => o.value === request.value);
@@ -784,20 +812,36 @@ export class NexiaApp {
     if (thermostat.fan.value === option.value) return null;
     return {
       action: thermostat.fan.action,
-      fallback: `xxl_thermostats/${thermostat.rawId}/fan_mode`,
+      // The xxl_thermostats fallback is the XL series' path only.
+      fallback:
+        thermostat.type === null || thermostat.type.startsWith('xxl')
+          ? `xxl_thermostats/${thermostat.rawId}/fan_mode`
+          : null,
       payload: { value: option.value },
     };
+  }
+
+  /**
+   * The library's fallback path of a zone setting, or null (refused) for a
+   * zone the thermostat numbers 1, 2... (UX360): xxl_zones/<n> would be
+   * another zone, or nothing.
+   */
+  zoneFallback(zone, setting) {
+    return zone.numbered ? null : `xxl_zones/${zone.rawId}/${setting}`;
   }
 
   planSetpoint(request, thermostat, zone) {
     const unit = thermostat.unit;
     const symbol = unitSymbol(unit);
     const heatKey = request.parsed.feature === ZF.HEAT_SETPOINT;
-    // In the thermostat's unit, rounded like the library (zone.py round_temp).
-    const converted = convert(request.value, request.unit, unit);
-    const value = unit === 'C' ? Math.round(converted * 2) / 2 : Math.round(converted);
+    // In the thermostat's unit, converted exactly then rounded once to its
+    // step, like the library (zone.py round_temp: 1 °F, 0.5 °C).
+    const converted = convertExact(request.value, request.unit, unit);
+    const step = SETPOINT_STEP[unit];
+    const value = Math.round(converted / step) * step;
     const { heatMin, heatMax, coolMin, coolMax } = zone.limits;
-    if ([heatMin, heatMax, coolMin, coolMax].some((n) => n === null)) {
+    // No deadband given: none is assumed, the command is refused.
+    if ([heatMin, heatMax, coolMin, coolMax, zone.deadband].some((n) => n === null)) {
       throw new CommandError(T.errors.unknownLimits);
     }
     const [min, max] = heatKey ? [heatMin, heatMax] : [coolMin, coolMax];
@@ -824,28 +868,29 @@ export class NexiaApp {
     if (zone.heat === heat && zone.cool === cool) return null;
     return {
       action: zone.actions.setpoints,
-      fallback: `xxl_zones/${zone.rawId}/setpoints`,
+      fallback: this.zoneFallback(zone, 'setpoints'),
       payload: { heat, cool },
     };
   }
 
-  /** Send, then answer Gladys on the cloud's answer or at COMMAND_ACK_MS, whichever first. */
-  async send({ client, generation, kind, plan, thermostat, zone, received, deadline }) {
+  /**
+   * Send, then answer Gladys on the cloud's answer or at COMMAND_ACK_MS,
+   * whichever first. Once the last check passed, the request runs with the
+   * full request timeout (never cut at the command budget: a slow cloud may
+   * still apply it); past the answer it is "sent, not confirmed", and the
+   * next command waits for its real end.
+   */
+  async send({ client, generation, kind, plan, thermostat, zone, received, job }) {
     let target;
     try {
       target = client.resolve(plan.action, plan.fallback);
     } catch (err) {
       throw new CommandError(T.errors.notSent(err), { cause: err });
     }
-    let sent = false;
     const request = client.send({
       url: target.url,
       method: target.method,
       payload: plan.payload,
-      deadline,
-      onSent: () => {
-        sent = true;
-      },
     });
     let handle;
     const ack = new Promise((resolve) => {
@@ -874,16 +919,20 @@ export class NexiaApp {
     if (outcome.pending) {
       // Sent, the cloud still at work: Gladys is answered now, the state follows.
       this.logger.info(`${label} sent, the cloud has not answered yet`);
-      request.then(after, async (err) => {
-        this.logger.warn(`${label} not confirmed: ${err?.code ?? 'error'}`);
-        // A late 429 / refusal still applies to every path.
-        await this.shared(err, generation);
-      });
+      job.tail = request
+        .then(after, async (err) => {
+          // Not confirmed (it may still have been applied): read again soon.
+          this.logger.warn(`${label} not confirmed: ${err?.code ?? 'error'}`);
+          // A late 429 / refusal still applies to every path.
+          await this.shared(err, generation);
+          if (generation === this.generation && client === this.client) this.readSoon(generation);
+        })
+        .catch((err) => this.logger.error(`Command follow-up failed: ${err?.message ?? 'error'}`));
       return;
     }
     const { err } = outcome;
     await this.shared(err, generation);
-    if (err?.notSent || !sent) throw new CommandError(T.errors.notSent(err), { cause: err });
+    if (err?.notSent) throw new CommandError(T.errors.notSent(err), { cause: err });
     throw new CommandError(T.errors.refused(err), { cause: err });
   }
 
@@ -954,13 +1003,20 @@ export class NexiaApp {
     return Promise.race([promise, limit]).finally(() => this.timers.clearTimeout(handle));
   }
 
-  /** Signs in again (a refusal included: the user asked), then reports, within 25 s. */
+  /**
+   * With a working session: reads the house again, no new sign-in. Else signs
+   * in again (a refusal included: the user asked, at most once a minute after
+   * a refusal). Reports within 25 s.
+   */
   async testConnection() {
-    await this.within(
-      this.start(this.rawConfig, { force: true }),
-      TEST_BUDGET_MS,
-      T.errors.testTooLong,
-    );
+    const reread = this.client?.hasSession && !this.blocked && this.online && !this.paused();
+    const task = reread
+      ? this.enqueue(async () => {
+          const generation = this.generation;
+          await this.refresh({ publish: true }).catch((err) => this.failed(err, generation));
+        })
+      : this.start(this.rawConfig, { force: true });
+    await this.within(task, TEST_BUDGET_MS, T.errors.testTooLong);
     if (!this.online) {
       const message = this.lastStatus ? JSON.parse(this.lastStatus)[1] : null;
       throw new Error(message?.en ?? T.errors.notConnected);

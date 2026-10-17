@@ -9,7 +9,7 @@
 // cannot be an external id leaves its thermostat or zone out.
 // -----------------------------------------------------------------------------
 
-import { DEFAULT_DEADBAND, ID_PATTERN, LIMITS } from '../constants.js';
+import { ID_PATTERN, LIMITS } from '../constants.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const list = (value) => (Array.isArray(value) ? value.filter(isObject) : []);
@@ -169,6 +169,7 @@ export function parseThermostat(json) {
   const thermostat = {
     id,
     rawId: json.id,
+    type: text(json.type, 40) || null,
     name,
     model,
     unit,
@@ -178,7 +179,8 @@ export function parseThermostat(json) {
     hasHumidity: Boolean(json.has_indoor_humidity ?? json.indoor_humidity),
     hasOutdoor: Boolean(json.has_outdoor_temperature),
     outdoorTemperature: json.has_outdoor_temperature ? num(json.outdoor_temperature) : null,
-    deadband: num(main?.setpoint_delta) ?? DEFAULT_DEADBAND[unit],
+    // No deadband given: none assumed (the setpoint commands are refused).
+    deadband: num(main?.setpoint_delta),
     limits: limitsOf(main),
     fan,
     hasHumidify: Boolean(setting('humidify')),
@@ -252,6 +254,8 @@ function parseZone(json, thermostat, systemMode) {
   return {
     id,
     rawId: json.id,
+    // A zone numbered per thermostat (UX360): the xxl_zones fallback paths do not apply.
+    numbered: typeof json.id === 'number' && Number.isInteger(json.id) && json.id < 256,
     name: native ? thermostat.name : rawName || `Zone ${id}`,
     native,
     temperature: num(json.temperature),

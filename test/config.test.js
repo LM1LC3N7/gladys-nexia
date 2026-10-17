@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accountKey, credentialsKey, normalizeConfig } from '../src/config.js';
+import { accountKey, normalizeConfig } from '../src/config.js';
 import { INTERVALS } from '../src/constants.js';
 import { memoryStore, normalizeState } from '../src/store.js';
 
@@ -30,7 +30,6 @@ test('the account key: brand and e-mail hashed, never the password', () => {
   assert.equal(accountKey(a), accountKey(b));
   assert.match(accountKey(a), /^[0-9a-f]{32}$/);
   assert.notEqual(accountKey(a), accountKey({ ...a, brand: 'trane' }));
-  assert.notEqual(credentialsKey(a), credentialsKey(b));
 });
 
 test('the persisted state is repaired and its waits capped', () => {

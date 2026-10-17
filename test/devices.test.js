@@ -84,7 +84,21 @@ test('the zone device: temperature, setpoints within the limits, mode, state, ho
     [heat.category, heat.type, heat.unit, heat.min, heat.max, heat.read_only],
     ['thermostat', 'target-temperature', 'fahrenheit', 55, 90, false],
   );
-  assert.deepEqual([cool.min, cool.max], [60, 99]);
+  assert.equal(heat.step, 1);
+  // The cooling setpoint: air-conditioning, the one the HomeKit bridge reads as the cooling threshold.
+  assert.deepEqual(
+    [cool.category, cool.type, cool.unit, cool.min, cool.max, cool.step],
+    ['air-conditioning', 'target-temperature', 'fahrenheit', 60, 99, 1],
+  );
+  assert.equal(mode.max, 3);
+  const heatOnly = {
+    ...t.zones[0],
+    modeOptions: t.zones[0].modeOptions.filter((o) => ['OFF', 'HEAT'].includes(o.mode)),
+  };
+  const limited = buildZoneDevice(gladys, t, heatOnly, 'fr').features.find((f) =>
+    f.external_id.endsWith(':mode'),
+  );
+  assert.equal(limited.max, 1, 'the highest mode offered');
   assert.deepEqual(
     mode.supported_options.map((o) => [o.value, o.label]),
     [
@@ -114,7 +128,7 @@ test('°C: units and bounds in °C', () => {
   const t = first('issue_79891');
   const device = buildZoneDevice(gladys, t, t.zones[0], 'en');
   const heat = device.features.find((f) => f.external_id.endsWith(':heat-setpoint'));
-  assert.deepEqual([heat.unit, heat.min, heat.max], ['celsius', 13, 32]);
+  assert.deepEqual([heat.unit, heat.min, heat.max, heat.step], ['celsius', 13, 32, 0.5]);
 });
 
 test('conversions', () => {

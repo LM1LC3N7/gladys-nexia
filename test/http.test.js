@@ -52,18 +52,13 @@ after(() => {
 });
 
 test('JSON in and out, the etag', async () => {
-  let sent = false;
   const response = await httpRequest({
     method: 'POST',
     url: `${base}/json`,
     headers: { 'Content-Type': 'application/json' },
     body: { a: 1 },
     timeoutMs: 5_000,
-    onSent: () => {
-      sent = true;
-    },
   });
-  assert.equal(sent, true);
   assert.equal(response.status, 200);
   assert.equal(response.etag, '"abc"');
   assert.deepEqual(response.json, { success: true, echo: { a: 1 } });
@@ -87,7 +82,7 @@ test('an answer too large is cut', async () => {
 test('a timeout', async () => {
   await assert.rejects(
     httpRequest({ url: `${base}/slow`, timeoutMs: 100 }),
-    (err) => err.code === CODES.TIMEOUT,
+    (err) => err.code === CODES.TIMEOUT && !err.notSent,
   );
 });
 
@@ -106,6 +101,6 @@ test('a 429 and its Retry-After', async () => {
 test('no connection', async () => {
   await assert.rejects(
     httpRequest({ url: 'http://127.0.0.1:1/', timeoutMs: 2_000 }),
-    (err) => err.code === CODES.NETWORK || err.code === CODES.TIMEOUT,
+    (err) => (err.code === CODES.NETWORK && err.notSent) || err.code === CODES.TIMEOUT,
   );
 });

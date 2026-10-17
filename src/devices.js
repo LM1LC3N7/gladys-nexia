@@ -34,6 +34,7 @@ import {
   BRANDS,
   ID_PATTERN,
   SETPOINT_BOUNDS,
+  SETPOINT_STEP,
   THERMOSTAT_FEATURES as TF,
   THERMOSTAT_MODE,
   THERMOSTAT_OPERATING_STATE,
@@ -53,12 +54,17 @@ export const gladysUnit = (unit) => (unit === 'C' ? U.CELSIUS : U.FAHRENHEIT);
 export const nexiaUnit = (unit) => (unit === U.CELSIUS ? 'C' : unit === U.FAHRENHEIT ? 'F' : null);
 export const unitSymbol = (unit) => (unit === 'C' || unit === U.CELSIUS ? '°C' : '°F');
 
-/** A temperature from one unit ('F' / 'C') to another, to 0.1 degree. */
-export function convert(value, from, to) {
+/** A temperature from one unit ('F' / 'C') to another, exactly (no rounding). */
+export function convertExact(value, from, to) {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;
   if (from === to) return value;
-  const converted = from === 'F' ? ((value - 32) * 5) / 9 : (value * 9) / 5 + 32;
-  return Math.round(converted * 10) / 10;
+  return from === 'F' ? ((value - 32) * 5) / 9 : (value * 9) / 5 + 32;
+}
+
+/** A temperature from one unit ('F' / 'C') to another, to 0.1 degree (states). */
+export function convert(value, from, to) {
+  const converted = convertExact(value, from, to);
+  return converted === null || from === to ? converted : Math.round(converted * 10) / 10;
 }
 
 /** THERMOSTAT_MODE of a zone mode (emergency heat is heating; unknown: null). */
@@ -205,18 +211,35 @@ export function buildZoneDevice(gladys, thermostat, zone, language) {
   // Commands, refused unless the user allowed them (`allow_control`, off by
   // default): read_only is fixed when the device is created, so the
   // permission is checked at each command instead.
-  for (const [key, min, max] of [
-    [ZF.HEAT_SETPOINT, zone.limits.heatMin, zone.limits.heatMax],
-    [ZF.COOL_SETPOINT, zone.limits.coolMin, zone.limits.coolMax],
+  // The heating setpoint is thermostat/target-temperature, the cooling one
+  // air-conditioning/target-temperature: the HomeKit bridge of the core
+  // (buildThermostatService.js) reads the cooling threshold only from the
+  // latter, and two thermostat targets on one device are ambiguous to it.
+  for (const [key, category, type, min, max] of [
+    [
+      ZF.HEAT_SETPOINT,
+      C.THERMOSTAT,
+      T.THERMOSTAT.TARGET_TEMPERATURE,
+      zone.limits.heatMin,
+      zone.limits.heatMax,
+    ],
+    [
+      ZF.COOL_SETPOINT,
+      C.AIR_CONDITIONING,
+      T.AIR_CONDITIONING.TARGET_TEMPERATURE,
+      zone.limits.coolMin,
+      zone.limits.coolMax,
+    ],
   ]) {
     features.push(
       named(
         key,
         command({
-          category: C.THERMOSTAT,
-          type: T.THERMOSTAT.TARGET_TEMPERATURE,
+          category,
+          type,
           unit: gladysUnit(unit),
           ...setpointRange(min, max, unit),
+          step: SETPOINT_STEP[unit],
         }),
       ),
     );
@@ -234,7 +257,8 @@ export function buildZoneDevice(gladys, thermostat, zone, language) {
           category: C.THERMOSTAT,
           type: T.THERMOSTAT.MODE,
           min: THERMOSTAT_MODE.OFF,
-          max: THERMOSTAT_MODE.AUTO,
+          // The highest mode offered (a heat-only zone stops at heating).
+          max: Math.max(...modes.map(([value]) => Number(value))),
           supported_options: modes.map(([value, mode], i) => ({
             value: Number(value),
             label: t.modes[mode],
@@ -283,7 +307,7 @@ export function mergeWithCreated(built, created) {
         has_feedback: f.has_feedback,
         keep_history: f.keep_history,
       };
-      for (const key of ['unit', 'min', 'max', 'supported_options']) {
+      for (const key of ['unit', 'min', 'max', 'step', 'supported_options']) {
         if (f[key] !== undefined && f[key] !== null) kept[key] = f[key];
       }
       return kept;

@@ -77,8 +77,8 @@ export const SETPOINT_BOUNDS = Object.freeze({
   celsius: Object.freeze({ min: 4.5, max: 37 }),
 });
 
-/** Deadband assumed when the thermostat does not give one (°F / °C). */
-export const DEFAULT_DEADBAND = Object.freeze({ F: 3, C: 1.5 });
+/** The step of a setpoint: the library rounds to 1 °F and to 0.5 °C. */
+export const SETPOINT_STEP = Object.freeze({ F: 1, C: 0.5 });
 
 export const TIMEOUTS = Object.freeze({
   /** One request to the cloud (the library waits 20 s). */
@@ -99,21 +99,23 @@ export const COMMAND_MIN_READ_MS = 1_500;
 export const COMMAND_ACK_MS = 4_300;
 
 export const INTERVALS = Object.freeze({
-  /** One reading of the house. */
-  POLL_MS: 60_000,
+  /** One reading of the house (Home Assistant reads every 120 s too). */
+  POLL_MS: 120_000,
   /** A reading after a command (the library waits 7 s: the UX360 is slow to show it). */
   AFTER_COMMAND_MS: 10_000,
   /** Cloud unreachable: first retry (never faster than the reading), then doubling. */
-  RETRY_MIN_MS: 60_000,
+  RETRY_MIN_MS: 120_000,
   RETRY_MAX_MS: 30 * 60_000,
-  /** HTTP 429: pause of every request, within these bounds (Retry-After if given). */
-  BUSY_MIN_MS: 60_000,
+  /** HTTP 429: pause of every request, within these bounds (Retry-After if given; never shorter than the reading). */
+  BUSY_MIN_MS: 120_000,
   BUSY_MAX_MS: 6 * 3600_000,
   /** Least time between two logins; doubled when a fresh token is refused. */
   LOGIN_SPACING_MS: 5 * 60_000,
   LOGIN_SPACING_MAX_MS: 6 * 3600_000,
   /** A stable value is published again after this long (dated recently in Gladys). */
   HEARTBEAT_MS: 30 * 60_000,
+  /** Least time between two sign-ins the user forces after a refusal (button, saved configuration). */
+  FORCED_LOGIN_SPACING_MS: 60_000,
 });
 
 /**

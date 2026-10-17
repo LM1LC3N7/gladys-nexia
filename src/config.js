@@ -46,10 +46,6 @@ export function normalizeConfig(raw = {}) {
   };
 }
 
-/** What a credential refusal is about (in memory only, never logged). */
-export const credentialsKey = (config) =>
-  JSON.stringify([config.brand, config.email.toLowerCase(), config.password]);
-
 /**
  * The account a refusal or a pause persisted in /data belongs to: a hash of
  * the brand and the e-mail, never the password, never the address itself.

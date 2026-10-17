@@ -146,6 +146,7 @@ test('units: only those the core lists for the category (server/utils/constants.
     'temperature-sensor': ['celsius', 'fahrenheit', 'kelvin'],
     'humidity-sensor': ['percent'],
     thermostat: ['celsius', 'fahrenheit'],
+    'air-conditioning': ['celsius', 'fahrenheit'],
   };
   const gladys = createFakeGladys({ selector: 'nexia' });
   const features = [];

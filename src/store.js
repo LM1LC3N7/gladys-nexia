@@ -68,6 +68,8 @@ export function normalizeState(raw, now) {
         ? {
             account: refusal.account,
             tries: Math.max(1, Math.min(Math.trunc(finite(refusal.tries)), 100)),
+            // When it was refused (never in the future).
+            at: Math.min(finite(refusal.at), now),
             // null: no automatic try left.
             nextAt:
               refusal.nextAt === null

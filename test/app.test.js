@@ -9,7 +9,13 @@ import { DEVICE_FEATURE_CATEGORIES as C } from '@gladysassistant/integration-sdk
 import { createFakeGladys } from '@gladysassistant/integration-sdk/testing';
 import { NexiaApp } from '../src/app.js';
 import { accountKey, normalizeConfig } from '../src/config.js';
-import { ACTIONS, COMMAND_ACK_MS, INTERVALS, REFUSED_RETRIES_MS } from '../src/constants.js';
+import {
+  ACTIONS,
+  COMMAND_ACK_MS,
+  INTERVALS,
+  REFUSED_RETRIES_MS,
+  TIMEOUTS,
+} from '../src/constants.js';
 import { buildThermostatDevice, buildZoneDevice } from '../src/devices.js';
 import { registerHandlers } from '../src/handlers.js';
 import { thermostatsOf } from '../src/nexia/model.js';
@@ -58,6 +64,7 @@ async function setup({
     devices: created ?? devicesOf(house),
   });
   const timers = createFakeTimers();
+  cloud.timers = timers;
   const logs = [];
   const logger = Object.fromEntries(
     ['debug', 'info', 'warn', 'error'].map((level) => [
@@ -256,16 +263,16 @@ test('a thermostat offline for the cloud: unreachable badge, no stale states', a
   assert.match(gladys.fake.connectionStatus.message.en, /2 thermostats are offline/);
 });
 
-test('cloud unreachable: retried at 60 s then slower, up to 30 min, never faster', async () => {
+test('cloud unreachable: retried at 120 s then slower, up to 30 min, never faster', async () => {
   const { gladys, cloud, timers } = await setup();
   cloud.unreachable = true;
   await poll(timers);
   assert.equal(badge(gladys, ZONE).transport, 'unreachable');
   assert.equal(gladys.fake.connectionStatus.connected, false);
   assert.match(gladys.fake.connectionStatus.message.en, /does not answer: no connection/);
-  assert.deepEqual(timers.delays(), [60_000]);
-  await timers.run();
   assert.deepEqual(timers.delays(), [120_000]);
+  await timers.run();
+  assert.deepEqual(timers.delays(), [240_000]);
   for (let i = 0; i < 8; i += 1) await timers.run();
   assert.deepEqual(timers.delays(), [INTERVALS.RETRY_MAX_MS]);
   cloud.unreachable = false;
@@ -306,7 +313,7 @@ test('password refused: stops, two automatic tries (6 h, 24 h) kept in /data, th
     gladys.fake.connectionStatus.message.en,
     /refused the e-mail address or the password/,
   );
-  assert.match(gladys.fake.connectionStatus.message.en, /6 h/);
+  assert.match(gladys.fake.connectionStatus.message.en, /in 6 h \(2 automatic tries left\)/);
   assert.deepEqual(timers.delays(), [REFUSED_RETRIES_MS[0]]);
   assert.equal(store.data.refusal.tries, 1);
   assert.equal(store.data.refusal.account, accountKey(normalizeConfig(BASE_CONFIG)));
@@ -321,6 +328,7 @@ test('password refused: stops, two automatic tries (6 h, 24 h) kept in /data, th
   await settle();
   assert.equal(cloud.logins, 2);
   assert.equal(store.data.refusal.tries, 2);
+  assert.match(gladys.fake.connectionStatus.message.en, /in 24 h \(1 automatic try left\)/);
   assert.deepEqual(timers.delays(), [REFUSED_RETRIES_MS[1]]);
   clock.now += REFUSED_RETRIES_MS[1];
   await timers.run();
@@ -334,10 +342,17 @@ test('password refused: stops, two automatic tries (6 h, 24 h) kept in /data, th
   const again = await setup({ config: { password: 'wrong' }, store, clock, cloud });
   assert.equal(cloud.logins, 3);
   assert.equal(again.gladys.fake.connectionStatus.connected, false);
-  // The button tries again (the user asked) — and fails again.
-  const ack = await again.gladys.fake.action(ACTIONS.TEST);
+  // The button right after a refusal: the sign-in waits a minute.
+  let ack = await again.gladys.fake.action(ACTIONS.TEST);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /moments ago/);
+  assert.equal(cloud.logins, 3);
+  // A minute later the button tries again (the user asked) — and fails again.
+  clock.now += 60_000;
+  ack = await again.gladys.fake.action(ACTIONS.TEST);
   assert.equal(ack.success, false);
   assert.equal(cloud.logins, 4);
+  clock.now += 60_000;
   // The right password saved: connected, the refusal forgotten.
   await again.gladys.fake.configUpdated({ ...BASE_CONFIG });
   assert.equal(again.gladys.fake.connectionStatus.connected, true);
@@ -412,7 +427,7 @@ test('brands: the cloud of the brand chosen', async () => {
   assert.ok(cloud.requests.every((r) => r.headers['X-AssociatedBrand'] === 'asair'));
 });
 
-test('the test button: signs in and lists the house', async () => {
+test('the test button: a working session reads the house again, no new sign-in', async () => {
   const { gladys, cloud } = await setup();
   const ack = await gladys.fake.action(ACTIONS.TEST);
   assert.equal(ack.success, true, ack.error);
@@ -420,7 +435,8 @@ test('the test button: signs in and lists the house', async () => {
     en: 'Connected to "My Home": 1 thermostat, 1 zone.',
     fr: 'Connecté à « My Home » : 1 thermostat, 1 zone.',
   });
-  assert.equal(cloud.logins, 2);
+  assert.equal(cloud.logins, 1);
+  assert.equal(cloud.requests.at(-1).method, 'GET');
 });
 
 // --- Commands ----------------------------------------------------------------------
@@ -553,7 +569,7 @@ test('zone mode: the value as the zone lists it; already so: nothing sent', asyn
   const ux = await setup({ house: 'issue_79891', config: ALLOW });
   ack = await set(ux.gladys, `ext:${SELECTOR}:zone:83261001`, 'mode', 0);
   assert.equal(ack.success, true, ack.error);
-  assert.deepEqual(ux.cloud.commands().at(-1).body, { value: 'off' }, 'lower case on the UX360');
+  assert.deepEqual(ux.cloud.commands().at(-1).body, { value: 'OFF' }, 'upper case, as the library');
 });
 
 test('fan mode: an option of the thermostat only', async () => {
@@ -605,6 +621,83 @@ test('a slow cloud: Gladys answered at 4.3 s, the state follows', async () => {
   release();
   await settle();
   assert.equal(state(gladys, ZONE, 'heat-setpoint'), 70);
+});
+
+test('a slow command keeps its full timeout; the next one waits for its real end', async () => {
+  const { gladys, cloud, timers, logs, clock } = await setup({ config: ALLOW });
+  cloud.hold = new Promise(() => {}); // never answers: the request times out
+  const first = set(gladys, ZONE, 'heat-setpoint', 70);
+  await settle();
+  const post = cloud.commands().at(-1);
+  assert.equal(post.timeoutMs, TIMEOUTS.REQUEST, 'not cut at the 3.5 s budget');
+  await timers.run((ms) => ms === COMMAND_ACK_MS);
+  assert.equal((await first).success, true, 'sent: Gladys answered at 4.3 s');
+  // A second command arrives while the first is still in flight: it waits.
+  const second = set(gladys, ZONE, 'cool-setpoint', 76);
+  await settle();
+  assert.equal(cloud.commands().length, 1, 'nothing sent while the first is in flight');
+  cloud.hold = null;
+  clock.now += TIMEOUTS.REQUEST;
+  await timers.run((ms) => ms === TIMEOUTS.REQUEST);
+  await settle();
+  assert.ok(logs.some((l) => /not confirmed: timeout/.test(l)));
+  assert.ok(timers.delays().includes(INTERVALS.AFTER_COMMAND_MS), 'read again soon');
+  const ack = await second;
+  // Its own budget ran out while it waited: refused, nothing sent past 3.5 s.
+  assert.equal(ack.success, false);
+  assert.equal(cloud.commands().length, 1);
+});
+
+test('no connection to the cloud: "nothing was sent"', async () => {
+  const { gladys, cloud } = await setup({ config: ALLOW });
+  cloud.onRequest = (r) => {
+    if (r.method === 'POST') cloud.unreachable = true;
+  };
+  const ack = await set(gladys, ZONE, 'heat-setpoint', 70);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /nothing was sent/);
+});
+
+test('a UX360 zone without its own address: refused, never an xxl_zones path', async () => {
+  const house = fixture('two_ux360_multizone');
+  const zone = house.result._links.child[0].data.items[0].zones[0];
+  for (const f of zone.features) delete f.actions;
+  const cloud = createFakeCloud({ house });
+  const { gladys } = await setup({ cloud, house: 'two_ux360_multizone', config: ALLOW });
+  const id = `ext:${SELECTOR}:zone:0000000001_1`;
+  let ack = await set(gladys, id, 'heat-setpoint', 64);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /nothing was sent/);
+  ack = await set(gladys, id, 'mode', 1);
+  assert.equal(ack.success, false);
+  assert.equal(cloud.commands().length, 0);
+});
+
+test('an address on another brand host: same path, the host of the brand chosen', async () => {
+  const cloud = createFakeCloud({ house: 'issue_79891', root: 'https://www.tranehome.com' });
+  const { gladys } = await setup({
+    cloud,
+    house: 'issue_79891',
+    config: { ...ALLOW, brand: 'trane' },
+  });
+  const ack = await set(gladys, `ext:${SELECTOR}:zone:83261001`, 'heat-setpoint', 21);
+  assert.equal(ack.success, true, ack.error);
+  assert.equal(
+    cloud.commands().at(-1).path,
+    '/mobile/diagnostics/thermostats/2222249/setpoints/83261001',
+  );
+});
+
+test('no deadband given: setpoint commands refused', async () => {
+  const house = fixture(XL);
+  const t = house.result._links.child[0].data.items[0];
+  for (const f of [...t.features, ...t.zones[0].features]) delete f.setpoint_delta;
+  const cloud = createFakeCloud({ house });
+  const { gladys } = await setup({ cloud, config: ALLOW });
+  const ack = await set(gladys, ZONE, 'heat-setpoint', 70);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /deadband of this thermostat are unknown/);
+  assert.equal(cloud.commands().length, 0);
 });
 
 test('a 429 met by a command pauses every path', async () => {

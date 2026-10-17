@@ -57,16 +57,17 @@ thermostat) :
 Les températures sont dans l’unité du compte (°F ou °C) à la création de
 l’appareil ; Gladys les convertit si le compte change d’unité ensuite.
 
-Les valeurs sont lues **chaque minute** (le cloud répond le plus souvent
-« rien de nouveau », ce qui ne coûte presque rien). Un thermostat que le
-cloud signale hors ligne apparaît injoignable, et ses valeurs ne sont pas
+Les valeurs sont lues **toutes les deux minutes** (le cloud répond le plus
+souvent « rien de nouveau », ce qui ne coûte presque rien). Un thermostat que
+le cloud signale hors ligne apparaît injoignable, et ses valeurs ne sont pas
 publiées.
 
 ## Commandes (désactivées par défaut)
 
 Par défaut Gladys ne fait que lire. Cochez **Autoriser les commandes** pour
-que le tableau de bord, les scènes, les assistants vocaux et le service
-Thermostat de Gladys puissent changer :
+que le tableau de bord, les scènes, HomeKit (le seul assistant vocal de Gladys
+qui atteint un thermostat) et le service Thermostat de Gladys puissent
+changer :
 
 - les **consignes de chauffage et de refroidissement** d’une zone. Une valeur
   est d’abord vérifiée (40 à 99 °F, ou 4,5 à 37 °C, dans l’unité de la
@@ -74,23 +75,29 @@ Thermostat de Gladys puissent changer :
   ajustée. Elle est ensuite arrondie comme dans l’application (1 °F,
   0,5 °C) et vérifiée contre les limites du thermostat ; l’autre consigne se
   décale pour garder l’écart que demande le thermostat (la « zone morte »),
-  comme dans l’application ;
-- le **mode** d’une zone (arrêt, chauffage, refroidissement, auto) ;
+  comme dans l’application. Un thermostat qui n’indique pas de zone morte
+  refuse les commandes de consigne ;
+- le **mode** d’une zone (arrêt, chauffage, refroidissement, auto).
+  **Arrêt coupe le chauffage et le refroidissement, sans hors-gel**, et peut
+  venir de HomeKit (« éteins le thermostat ») ou du service Thermostat de
+  Gladys, pas seulement de vous ;
 - la **ventilation**.
 
 Avant chaque commande, Gladys relit le thermostat : s’il est hors ligne, si
 la zone a disparu ou si la valeur est déjà la bonne, rien n’est envoyé. Une
-commande à la fois. Il n’y a jamais d’interrupteur pour couper le chauffage :
-« tout éteindre » dans Gladys ne touche pas aux thermostats.
+commande à la fois : un cloud lent peut mettre jusqu’à 20 secondes ; Gladys
+affiche la commande comme envoyée au bout de 4 secondes, et la suivante
+attend. Il n’y a jamais d’interrupteur pour couper le chauffage : « tout
+éteindre » dans Gladys ne touche pas aux thermostats.
 
 Une consigne changée ainsi peut ne tenir que jusqu’au prochain créneau du
 programme du thermostat, comme dans l’application.
 
 ## Limites
 
-- HTTP 429 (trop de requêtes) : toutes les requêtes attendent (1 minute à
+- HTTP 429 (trop de requêtes) : toutes les requêtes attendent (2 minutes à
   6 heures), même après un redémarrage.
-- Cloud injoignable : nouvel essai après 1 minute, puis de moins en moins
+- Cloud injoignable : nouvel essai après 2 minutes, puis de moins en moins
   souvent (jusqu’à 30 minutes).
 - Seulement la première maison du compte.
 - Pas encore : préréglages (maison, absent, nuit), reprise du programme,
@@ -103,4 +110,7 @@ L’adresse e-mail et le mot de passe ne partent que vers le cloud de la marque
 choisie. La clé de session reste en mémoire. Le dossier `/data` du conteneur
 ne contient qu’un identifiant aléatoire de cette installation (l’application
 en envoie un), la fin d’une pause 429 et l’état d’un refus (une empreinte de
-la marque et de l’e-mail, jamais le mot de passe).
+la marque et de l’e-mail, jamais le mot de passe). Si `/data` n’est pas
+inscriptible, cet identifiant change à chaque redémarrage, et le compte peut
+lister un « téléphone » de plus à chaque fois (supprimables dans
+l’application).

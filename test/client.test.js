@@ -48,6 +48,8 @@ test('a refused password is REFUSED, whatever the way the cloud says it', async 
     null,
     { status: 401 },
     { status: 403 },
+    { status: 422 },
+    { status: 400 },
     { status: 302, location: 'https://www.mynexia.com/account/forgotten_credentials' },
   ]) {
     const cloud = createFakeCloud();
@@ -137,6 +139,55 @@ test('command addresses stay on the cloud of the brand', () => {
   );
   const trane = setup({ brand: 'trane' }).client;
   assert.equal(trane.resolve(null, 'a').url, 'https://www.tranehome.com/mobile/a');
+  // An address on another brand's host: the path kept, the host of the brand chosen.
+  assert.equal(
+    trane.resolve({ href: 'https://www.mynexia.com/mobile/diagnostics/thermostats/1/mode/1' }, null)
+      .url,
+    'https://www.tranehome.com/mobile/diagnostics/thermostats/1/mode/1',
+  );
+  assert.throws(
+    () => trane.resolve(null, null),
+    (err) => err.code === CODES.BAD_URL && err.notSent,
+  );
+});
+
+test('sign-in: 408 and no connection are passing failures, the spacing is not used up', async () => {
+  const { client, cloud } = setup();
+  cloud.failures.push({ match: (r) => r.path.endsWith('sign_in'), status: 408 });
+  await assert.rejects(client.house(), (err) => err.code === CODES.HTTP && err.status === 408);
+  cloud.unreachable = true;
+  await assert.rejects(client.house(), (err) => err.code === CODES.NETWORK);
+  cloud.unreachable = false;
+  await client.house();
+  assert.equal(cloud.logins, 1, 'signed in at once after the passing failures (no spacing wait)');
+});
+
+test('an accepted sign-in that cannot be used: the spacing doubles, no login loop', async () => {
+  const { client, cloud, clock } = setup();
+  cloud.failures.push({
+    match: (r) => r.path.endsWith('sign_in'),
+    status: 200,
+    body: { success: true, result: {} },
+  });
+  await assert.rejects(client.house(), (err) => err.code === CODES.BAD_ANSWER && err.retryAt > 0);
+  assert.equal(client.loginSpacing, 2 * INTERVALS.LOGIN_SPACING_MS);
+  await assert.rejects(client.house(), (err) => err.code === CODES.SESSION && err.notSent);
+  assert.equal(cloud.logins, 0, 'the failure answered before the fake counted a login');
+  clock.now += 2 * INTERVALS.LOGIN_SPACING_MS;
+  // The house lookup refused right after the sign-in: doubled again.
+  cloud.failures.push({ match: (r) => r.path.endsWith('/session'), status: 302 });
+  await assert.rejects(client.house(), (err) => err.code === CODES.SESSION && err.status === 302);
+  assert.equal(client.loginSpacing, 4 * INTERVALS.LOGIN_SPACING_MS);
+});
+
+test('the house lookup failed after the sign-in: looked up again, never /houses/null', async () => {
+  const { client, cloud } = setup();
+  cloud.failures.push({ match: (r) => r.path.endsWith('/session'), status: 500 });
+  await assert.rejects(client.house(), (err) => err.code === CODES.HTTP);
+  assert.equal(client.hasSession, true);
+  await client.house();
+  assert.equal(cloud.logins, 1, 'no new sign-in');
+  assert.ok(cloud.requests.every((r) => !r.path.includes('null')));
 });
 
 test('send: the session and the origin are checked before anything leaves', async () => {

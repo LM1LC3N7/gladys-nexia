@@ -4,7 +4,9 @@
 // read up to LIMITS.MAX_BYTES, and the timeout is our own timer (not
 // AbortSignal.timeout, whose unref'd timer behaves differently in tests).
 //
-//   request({ method, url, headers, body, timeoutMs, onSent })
+//   request({ method, url, headers, body, timeoutMs })
+//
+// A network error (no connection) is "not sent"; a timeout may have reached the cloud.
 //     -> { status, etag, location, retryAfterMs, json }
 // -----------------------------------------------------------------------------
 
@@ -49,7 +51,6 @@ export async function httpRequest({
   headers = {},
   body,
   timeoutMs,
-  onSent,
   fetchImpl = globalThis.fetch,
 }) {
   const controller = new AbortController();
@@ -57,19 +58,17 @@ export async function httpRequest({
   try {
     let response;
     try {
-      const pending = fetchImpl(url, {
+      response = await fetchImpl(url, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
         redirect: 'manual',
         signal: controller.signal,
       });
-      onSent?.();
-      response = await pending;
     } catch {
       // Never the message of the error: it may carry the address with a query.
       if (controller.signal.aborted) throw new NexiaError(CODES.TIMEOUT);
-      throw new NexiaError(CODES.NETWORK);
+      throw new NexiaError(CODES.NETWORK, { notSent: true });
     }
     let text;
     try {

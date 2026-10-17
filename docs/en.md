@@ -55,37 +55,44 @@ of the thermostat):
 Temperatures are in the unit of the account (°F or °C) when the device is
 created; Gladys converts them if the account changes unit later.
 
-The values are read **every minute** (the cloud answers "nothing new" most
-of the time, which costs almost nothing). A thermostat the cloud reports
+The values are read **every two minutes** (the cloud answers "nothing new"
+most of the time, which costs almost nothing). A thermostat the cloud reports
 offline is shown unreachable, and its values are not published.
 
 ## Commands (off by default)
 
 By default Gladys only reads. Tick **Allow commands** to let the dashboard,
-the scenes, the voice assistants and the Thermostat service of Gladys change:
+the scenes, HomeKit (the only voice assistant of Gladys that reaches a
+thermostat) and the Thermostat service of Gladys change:
 
 - the **heating and cooling setpoints** of a zone. A value is checked before
   anything else (40 to 99 °F, or 4.5 to 37 °C, in the unit of the Gladys
   feature): a value out of it is refused, never adjusted. It is then rounded
   like the app (1 °F, 0.5 °C) and checked against the limits of the
   thermostat; the other setpoint moves to keep the gap the thermostat asks
-  for (the "deadband"), as in the app;
-- the **mode** of a zone (off, heating, cooling, auto);
+  for (the "deadband"), as in the app. A thermostat that gives no deadband
+  refuses the setpoint commands;
+- the **mode** of a zone (off, heating, cooling, auto). **Off stops heating
+  and cooling, with no frost protection**, and it may come from HomeKit
+  ("turn off the thermostat") or from the Thermostat service of Gladys, not
+  only from you;
 - the **fan mode**.
 
 Before each command Gladys reads the thermostat again: if it is offline, if
 the zone is gone or if the value is already there, nothing is sent. One
-command at a time. There is never a switch to turn the heating off: "turn
-everything off" in Gladys does not touch the thermostats.
+command at a time: a slow cloud may take up to 20 seconds; Gladys shows the
+command as sent after 4 seconds, and the next one waits. There is never a
+switch to turn the heating off: "turn everything off" in Gladys does not
+touch the thermostats.
 
 A setpoint changed this way may hold until the next step of the schedule of
 the thermostat, as in the app.
 
 ## Limits
 
-- HTTP 429 (too many requests): every request waits (1 minute to 6 hours),
+- HTTP 429 (too many requests): every request waits (2 minutes to 6 hours),
   across restarts too.
-- Cloud unreachable: retried after 1 minute, then less and less often (up to
+- Cloud unreachable: retried after 2 minutes, then less and less often (up to
   30 minutes).
 - The first house of the account only.
 - Not yet: presets (home, away, sleep), schedule resume, emergency heat,
@@ -97,4 +104,6 @@ The e-mail address and the password go only to the cloud of the brand chosen.
 The session key stays in memory. `/data` of the container holds only a random
 identifier of this installation (the app sends one), the end of a 429 pause
 and the state of a refusal (a hash of the brand and the e-mail, never the
-password).
+password). If `/data` cannot be written, that identifier is new at each
+restart, and the account may list one more "phone" each time (they can be
+removed in the app).
