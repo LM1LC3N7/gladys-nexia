@@ -1,6 +1,6 @@
 {
   "name": "gladys-nexia",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for Trane Nexia, Trane Home and American Standard Home (Asair) thermostats through their cloud: zones, temperatures, humidity, setpoints, modes, fan. Unofficial, not affiliated with Trane Technologies.",
   "type": "module",
