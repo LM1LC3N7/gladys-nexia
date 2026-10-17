@@ -1,45 +1,61 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration the user fills (manifest `config_schema`), normalized.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
-export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
+import { createHash } from 'node:crypto';
+import { BRANDS } from './constants.js';
+
+export const LANGUAGES = Object.freeze(['fr', 'en']);
+export const BRAND_KEYS = Object.freeze(Object.keys(BRANDS));
+
+// Defaults: they MUST match the `default` values of the manifest.
+export const DEFAULTS = Object.freeze({
+  brand: 'nexia',
+  allow_control: false,
+  language: 'fr',
+});
+
+const text = (value) => (typeof value === 'string' ? value.trim() : '');
+const bool = (value, fallback) => {
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  return fallback;
 };
 
-/**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
- */
 export function normalizeConfig(raw = {}) {
+  raw = raw ?? {};
+  const brand = BRAND_KEYS.includes(text(raw.brand)) ? text(raw.brand) : DEFAULTS.brand;
+  const email = text(raw.email);
+  // The password is sent as typed (spaces included), never trimmed.
+  const password = typeof raw.password === 'string' ? raw.password : '';
+  const missing = [];
+  if (!email) missing.push('email');
+  if (!password) missing.push('password');
+  const language = LANGUAGES.includes(String(raw.language))
+    ? String(raw.language)
+    : DEFAULTS.language;
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    brand,
+    email,
+    password,
+    missing,
+    // An address without "@" is surely a typo: said to the user, never sent.
+    emailInvalid: email !== '' && !/^[^\s@]+@[^\s@]+$/.test(email),
+    allowControl: bool(raw.allow_control, DEFAULTS.allow_control),
+    language,
   };
 }
+
+/** What a credential refusal is about (in memory only, never logged). */
+export const credentialsKey = (config) =>
+  JSON.stringify([config.brand, config.email.toLowerCase(), config.password]);
+
+/**
+ * The account a refusal or a pause persisted in /data belongs to: a hash of
+ * the brand and the e-mail, never the password, never the address itself.
+ */
+export const accountKey = (config) =>
+  createHash('sha256')
+    .update(`${config.brand}\n${config.email.toLowerCase()}`)
+    .digest('hex')
+    .slice(0, 32);

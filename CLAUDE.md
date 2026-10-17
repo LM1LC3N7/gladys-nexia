@@ -11,13 +11,18 @@ Gladys through
 [`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
 its only runtime dependency. It started from the official JavaScript template.
 
+It brings Trane Nexia, Trane Home and American Standard Home (Asair)
+thermostats into Gladys through the unofficial API of their app (the cloud
+the [nexia](https://github.com/bdraco/nexia) library talks to). Never tested
+with a real account: see TODO.md, "Milestone 2".
+
 ## Commands
 
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
 node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test --test-name-pattern "setpoint"  # tests whose name matches
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
@@ -31,18 +36,30 @@ pushing.
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
+index.js                          SDK wiring only (src/handlers.js registers before connect())
+src/handlers.js                   the SDK handlers -> NexiaApp (shared with the tests)
+src/app.js                        NexiaApp: lifecycle, reading loop, publication, commands
+src/nexia/client.js               cloud client: sign-in, session headers, house, commands
+src/nexia/http.js                 the only network access (fetch, no redirect, size cap)
+src/nexia/model.js                house JSON -> thermostats and zones (pure, ported from nexia)
+src/nexia/errors.js               error codes (never the text of an answer)
+src/devices.js                    Gladys devices and states (pure), unit conversion, merge
+src/store.js                      /data: device uuid, 429 pause, refusal (no secret)
+src/config.js                     DEFAULTS (mirror the manifest defaults) + normalization
+src/constants.js, src/i18n.js     keys, limits, timings; texts en/fr
 gladys-assistant-integration.json manifest: name, config_schema, actions, image...
 docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
+test/                             node --test, against the SDK's fake Gladys and a fake cloud
+test/fixtures/                    house answers recorded by the nexia library (kept as published)
 .github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
 ```
+
+Safety rules of this integration (see TODO.md "Decisions"): commands only
+behind `allow_control` (off by default), checked on arrival and just before
+sending; the thermostat read again before acting; nothing sent past 3.5 s; a
+setpoint checked raw before rounding; never a `switch` nor a writable
+`binary`; a refused password stops (two automatic tries, kept in `/data`); a
+429 pauses every path; no login at each reading.
 
 ## Rules
 

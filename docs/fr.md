@@ -1,67 +1,106 @@
-# Template de démonstration
+# Nexia, Trane Home et American Standard Home
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Les thermostats de Trane Technologies (série Trane XL, American Standard Gold
+/ Platinum, UX360…) dans Gladys, par le cloud de leur application : **Nexia**
+(mynexia.com), **Trane Home** (tranehome.com) ou **American Standard Home**
+(asairhome.com, appelée aussi Asair).
 
-## Ce que vous obtenez
-
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+> **Intégration non officielle**, sans lien avec Trane Technologies. Elle
+> utilise l’**API non officielle** de l’application mobile (celle de la
+> bibliothèque [nexia](https://github.com/bdraco/nexia) et de Home
+> Assistant), qui peut changer sans prévenir. Elle n’a jamais été testée avec un vrai compte :
+> seulement avec les réponses enregistrées par la bibliothèque nexia. Merci de
+> signaler ce que vous observez.
 
 ## Configuration
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+1. **Marque (application)** : l’application où vous vous connectez. Les trois
+   sont le même cloud sous trois adresses.
+2. **Adresse e-mail** et **mot de passe** de ce compte. Le mot de passe est
+   gardé par Gladys dans sa base (non chiffré, jamais réaffiché) et envoyé
+   seulement au cloud de la marque choisie.
+3. Enregistrez. L’état indique combien de thermostats et de zones ont été
+   trouvés ; les appareils sont dans l’onglet **Découverte**.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+**Tester la connexion** se reconnecte et liste thermostats et zones.
 
-## Actions
+### Mot de passe refusé
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+Plusieurs mauvais mots de passe de suite peuvent bloquer le compte. Quand le
+cloud refuse l’e-mail ou le mot de passe, Gladys s’arrête ; il ne réessaie
+seul que deux fois, 6 heures puis 24 heures plus tard (même après un
+redémarrage), puis vous attend : corrigez le mot de passe et enregistrez, ou
+appuyez sur **Tester la connexion**.
 
-## Scènes
+## Appareils
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+**Un appareil par thermostat** (le système) :
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+- humidité intérieure (%) ;
+- température extérieure, si le système a une sonde (tenue à l’écart de la
+  température de la pièce dans Gladys) ;
+- état du système (texte du cloud : « Cooling », « System Idle »…) ;
+- ventilation (auto, marche, circulation : les choix du thermostat) ;
+- consignes d’humidification / de déshumidification (%), si un humidificateur
+  ou un déshumidificateur est installé (lecture seule).
 
-## Tableau de bord
+**Un appareil par zone** (un système sans zones a une zone, au nom du
+thermostat) :
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+- température ;
+- consigne de chauffage et consigne de refroidissement ;
+- mode : arrêt, chauffage, refroidissement, auto (le chauffage de secours
+  apparaît comme chauffage) ;
+- fonctionnement : au repos, chauffe, refroidit ;
+- programme ou maintien (texte du cloud).
 
-## Dépannage
+Les températures sont dans l’unité du compte (°F ou °C) à la création de
+l’appareil ; Gladys les convertit si le compte change d’unité ensuite.
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+Les valeurs sont lues **chaque minute** (le cloud répond le plus souvent
+« rien de nouveau », ce qui ne coûte presque rien). Un thermostat que le
+cloud signale hors ligne apparaît injoignable, et ses valeurs ne sont pas
+publiées.
+
+## Commandes (désactivées par défaut)
+
+Par défaut Gladys ne fait que lire. Cochez **Autoriser les commandes** pour
+que le tableau de bord, les scènes, les assistants vocaux et le service
+Thermostat de Gladys puissent changer :
+
+- les **consignes de chauffage et de refroidissement** d’une zone. Une valeur
+  est d’abord vérifiée (40 à 99 °F, ou 4,5 à 37 °C, dans l’unité de la
+  fonctionnalité Gladys) : hors de ces bornes elle est refusée, jamais
+  ajustée. Elle est ensuite arrondie comme dans l’application (1 °F,
+  0,5 °C) et vérifiée contre les limites du thermostat ; l’autre consigne se
+  décale pour garder l’écart que demande le thermostat (la « zone morte »),
+  comme dans l’application ;
+- le **mode** d’une zone (arrêt, chauffage, refroidissement, auto) ;
+- la **ventilation**.
+
+Avant chaque commande, Gladys relit le thermostat : s’il est hors ligne, si
+la zone a disparu ou si la valeur est déjà la bonne, rien n’est envoyé. Une
+commande à la fois. Il n’y a jamais d’interrupteur pour couper le chauffage :
+« tout éteindre » dans Gladys ne touche pas aux thermostats.
+
+Une consigne changée ainsi peut ne tenir que jusqu’au prochain créneau du
+programme du thermostat, comme dans l’application.
+
+## Limites
+
+- HTTP 429 (trop de requêtes) : toutes les requêtes attendent (1 minute à
+  6 heures), même après un redémarrage.
+- Cloud injoignable : nouvel essai après 1 minute, puis de moins en moins
+  souvent (jusqu’à 30 minutes).
+- Seulement la première maison du compte.
+- Pas encore : préréglages (maison, absent, nuit), reprise du programme,
+  chauffage de secours, commandes des consignes d’humidité, purificateur
+  d’air, capteurs RoomIQ.
+
+## Vie privée
+
+L’adresse e-mail et le mot de passe ne partent que vers le cloud de la marque
+choisie. La clé de session reste en mémoire. Le dossier `/data` du conteneur
+ne contient qu’un identifiant aléatoire de cette installation (l’application
+en envoie un), la fin d’une pause 429 et l’état d’un refus (une empreinte de
+la marque et de l’e-mail, jamais le mot de passe).

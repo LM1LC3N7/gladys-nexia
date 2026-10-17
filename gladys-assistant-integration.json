@@ -1,177 +1,107 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "Nexia / Trane / Am. Standard",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "Trane Nexia, Trane Home and American Standard Home thermostats: zones, setpoints, modes.",
+    "fr": "Thermostats Trane Nexia, Trane Home et American Standard Home : zones, consignes, modes."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-nexia:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
-  "transports": ["local", "cloud"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-nexia/main/cover.png",
+  "categories": ["climate"],
+  "transports": ["cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": { "en": "How it works", "fr": "Fonctionnement" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Gladys reads the thermostats of your account every minute from the cloud of the app (Nexia, Trane Home or American Standard Home). Each thermostat becomes a Gladys device (Discovery tab) with its humidity, outdoor temperature, status and fan mode; each zone becomes a device with its temperature, heating and cooling setpoints, mode and operating state. Unofficial integration, not affiliated with Trane Technologies: it uses the unofficial API of the app, and has never been tested with a real account (see the documentation).",
+        "fr": "Gladys lit les thermostats de votre compte chaque minute dans le cloud de l'application (Nexia, Trane Home ou American Standard Home). Chaque thermostat devient un appareil Gladys (onglet Découverte) avec son humidité, sa température extérieure, son état et sa ventilation ; chaque zone devient un appareil avec sa température, ses consignes de chauffage et de refroidissement, son mode et son fonctionnement. Intégration non officielle, sans lien avec Trane Technologies : elle utilise l'API non officielle de l'application, et n'a jamais été testée avec un vrai compte (voir la documentation)."
+      }
+    },
+    {
+      "key": "brand",
+      "type": "select",
+      "label": { "en": "Brand (app)", "fr": "Marque (application)" },
+      "description": {
+        "en": "The app you sign in to: the same cloud under three names.",
+        "fr": "L'application où vous vous connectez : le même cloud sous trois noms."
       },
-      "links": [
+      "required": true,
+      "default": "nexia",
+      "options": [
+        { "value": "nexia", "label": { "en": "Nexia (Trane)", "fr": "Nexia (Trane)" } },
+        { "value": "trane", "label": { "en": "Trane Home", "fr": "Trane Home" } },
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "value": "asair",
+          "label": {
+            "en": "American Standard Home (Asair)",
+            "fr": "American Standard Home (Asair)"
+          }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
+      "key": "email",
+      "type": "string",
+      "label": { "en": "E-mail address of the account", "fr": "Adresse e-mail du compte" },
+      "placeholder": { "en": "e.g. me@example.com", "fr": "ex. moi@exemple.fr" },
+      "required": true
     },
     {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
+      "key": "password",
+      "type": "secret",
+      "label": { "en": "Password of the account", "fr": "Mot de passe du compte" },
       "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
+        "en": "Kept by Gladys in its database, never shown again, sent only to the cloud of the brand chosen. Several wrong passwords in a row may lock the account: after a refusal Gladys tries again only twice (6 h, then 24 h later).",
+        "fr": "Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement au cloud de la marque choisie. Plusieurs mauvais mots de passe de suite peuvent bloquer le compte : après un refus, Gladys ne réessaie que deux fois (6 h, puis 24 h plus tard)."
       },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
+      "required": true
     },
     {
-      "key": "unit",
+      "key": "options_section",
+      "type": "section",
+      "label": { "en": "Commands", "fr": "Commandes" },
+      "description": {
+        "en": "By default Gladys only reads. Once the option below is ticked, the dashboard, the scenes, the voice assistants and the Thermostat service of Gladys can change the heating and cooling setpoints, the mode of a zone (off, heating, cooling, auto) and the fan mode. Setpoints are checked against the limits of the thermostat; there is never a switch to cut the heating.",
+        "fr": "Par défaut Gladys ne fait que lire. Une fois l'option ci-dessous cochée, le tableau de bord, les scènes, les assistants vocaux et le service Thermostat de Gladys peuvent changer les consignes de chauffage et de refroidissement, le mode d'une zone (arrêt, chauffage, refroidissement, auto) et la ventilation. Les consignes sont vérifiées contre les limites du thermostat ; il n'y a jamais d'interrupteur pour couper le chauffage."
+      }
+    },
+    {
+      "key": "allow_control",
+      "type": "boolean",
+      "label": { "en": "Allow commands", "fr": "Autoriser les commandes" },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "language",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
-      "required": false,
-      "default": "celsius",
-      "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
-      ]
-    },
-    {
-      "key": "poll_frequency",
-      "type": "number",
-      "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
+      "label": { "en": "Language of the devices", "fr": "Langue des appareils" },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "Names of the devices, features and options.",
+        "fr": "Noms des appareils, des fonctionnalités et des options."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": "fr",
+      "options": [
+        { "value": "fr", "label": { "en": "French", "fr": "Français" } },
+        { "value": "en", "label": { "en": "English", "fr": "Anglais" } }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
+      "key": "test_connection",
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "description": {
+        "en": "Signs in now (even after a refused password) and lists the thermostats and zones.",
+        "fr": "Se connecte maintenant (même après un mot de passe refusé) et liste thermostats et zones."
+      },
       "timeout_seconds": 30
-    },
-    {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
-      },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
-      },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
     }
   ]
 }
