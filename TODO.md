@@ -177,16 +177,21 @@ false`, 401, 422, or a redirect to "forgotten credentials": all are
   A missing setpoint (`null`) counts as the limit, like the library.
 - **Commands** (`allow_control`, off by default; `read_only: false` is fixed
   at creation, so the permission is checked at each command, on arrival and
-  just before sending): serialized for the account, the next one waiting for
-  the REAL end of the previous (not only for its answer to Gladys); the house
+  just before sending): serialized for the account; while a request is still
+  in flight after its answer to Gladys (up to 20 s), any new command is
+  refused at once with "the previous command is still being applied" (en +
+  fr), never queued (Gladys gives up at 5 s, a queued command would run
+  after it showed a failure), also re-checked when a queued command starts;
+  the house
   read again (304 = the last reading is current) within 2.7 s; thermostat
   offline (the cloud's `connected: false` / "NOT CONNECTED") or zone gone:
   refused; nothing sent past 3.5 s after arrival. Once sent, the request has
   its full timeout (20 s): a slow cloud may still apply it, so it is never
   cut and called a failure. Gladys answered at 4.3 s at most ("sent"); a
   later failure or timeout is "sent, not confirmed" in the logs, and the
-  house is read again 10 s later. A network error (no connection) is
-  "nothing was sent". States published without delaying the answer. A late
+  house is read again 10 s later. A network error during a command is "may
+  not have reached the cloud" (the connection may drop after the request
+  left), with a reading 10 s later. States published without delaying the answer. A late
   429 or refusal applies to every path.
 - **Command addresses**: the `href` the thermostat gives (`self` first, then
   the named action, as the library). On one of the three brand hosts, in

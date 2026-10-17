@@ -63,8 +63,10 @@ Gladys ⇄ SDK ⇄ src/app.js (NexiaApp)
   just before acting; nothing is sent past 3.5 s; once sent, the request has
   its full 20 s; Gladys is answered at most 4.3 s after the command (past
   that: "sent, not confirmed", a reading 10 s later), the states follow
-  without delaying it. One command at a time, until the real end of the
-  previous one. The address a thermostat gives for a setting is used on the
+  without delaying it. One command at a time; while a sent request is still
+  in flight past its answer, a new command is refused at once (never queued
+  behind it). A dropped connection during a command: "may not have reached
+  the cloud", read again 10 s later. The address a thermostat gives for a setting is used on the
   host of the brand chosen (same path when it names another brand's host, as
   the library's `resolve_url`); a UX360 zone without its own address is
   refused, never sent to an `xxl_zones` path.- **Reconnection to Gladys**: the status, Discovery, states and badges are

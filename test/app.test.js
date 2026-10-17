@@ -623,7 +623,7 @@ test('a slow cloud: Gladys answered at 4.3 s, the state follows', async () => {
   assert.equal(state(gladys, ZONE, 'heat-setpoint'), 70);
 });
 
-test('a slow command keeps its full timeout; the next one waits for its real end', async () => {
+test('a slow command keeps its full timeout; a command meanwhile is refused at once', async () => {
   const { gladys, cloud, timers, logs, clock } = await setup({ config: ALLOW });
   cloud.hold = new Promise(() => {}); // never answers: the request times out
   const first = set(gladys, ZONE, 'heat-setpoint', 70);
@@ -632,32 +632,36 @@ test('a slow command keeps its full timeout; the next one waits for its real end
   assert.equal(post.timeoutMs, TIMEOUTS.REQUEST, 'not cut at the 3.5 s budget');
   await timers.run((ms) => ms === COMMAND_ACK_MS);
   assert.equal((await first).success, true, 'sent: Gladys answered at 4.3 s');
-  // A second command arrives while the first is still in flight: it waits.
-  const second = set(gladys, ZONE, 'cool-setpoint', 76);
-  await settle();
-  assert.equal(cloud.commands().length, 1, 'nothing sent while the first is in flight');
+  // A second command while the first is still in flight: refused at once
+  // (no timer to run, no waiting), nothing sent, never run later.
+  const second = await set(gladys, ZONE, 'cool-setpoint', 76);
+  assert.equal(second.success, false);
+  assert.match(second.error, /previous command is still being applied by the cloud/);
+  assert.match(second.error, /encore en cours dans le cloud/);
+  assert.equal(cloud.commands().length, 1);
   cloud.hold = null;
   clock.now += TIMEOUTS.REQUEST;
   await timers.run((ms) => ms === TIMEOUTS.REQUEST);
   await settle();
   assert.ok(logs.some((l) => /not confirmed: timeout/.test(l)));
   assert.ok(timers.delays().includes(INTERVALS.AFTER_COMMAND_MS), 'read again soon');
-  const ack = await second;
-  // Its own budget ran out while it waited: refused, nothing sent past 3.5 s.
-  assert.equal(ack.success, false);
-  assert.equal(cloud.commands().length, 1);
+  assert.equal(cloud.commands().length, 1, 'the refused command never ran');
+  // Once the first one is over, a new command goes through.
+  const third = await set(gladys, ZONE, 'cool-setpoint', 76);
+  assert.equal(third.success, true, third.error);
+  assert.equal(cloud.commands().length, 2);
 });
 
-test('no connection to the cloud: "nothing was sent"', async () => {
-  const { gladys, cloud } = await setup({ config: ALLOW });
+test('the connection drops during a command: "may not have reached it", read again soon', async () => {
+  const { gladys, cloud, timers } = await setup({ config: ALLOW });
   cloud.onRequest = (r) => {
     if (r.method === 'POST') cloud.unreachable = true;
   };
   const ack = await set(gladys, ZONE, 'heat-setpoint', 70);
   assert.equal(ack.success, false);
-  assert.match(ack.error, /nothing was sent/);
+  assert.match(ack.error, /may not have reached it/);
+  assert.ok(timers.delays().includes(INTERVALS.AFTER_COMMAND_MS));
 });
-
 test('a UX360 zone without its own address: refused, never an xxl_zones path', async () => {
   const house = fixture('two_ux360_multizone');
   const zone = house.result._links.child[0].data.items[0].zones[0];

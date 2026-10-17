@@ -108,6 +108,8 @@ export class NexiaApp {
     /** One account: the commands run one after the other. */
     this.commands = Promise.resolve();
     this.activeCommands = 0;
+    /** The request of a command still in flight after its answer to Gladys, or null. */
+    this.inFlight = null;
     this.stateVersion = 0;
     this.lastStatus = null;
     /** What survives a restart (store.js), loaded once. */
@@ -700,14 +702,17 @@ export class NexiaApp {
     if (this.paused()) throw new Error(T.errors.busy);
     const client = this.client;
     if (!client || this.blocked || !this.online) throw new Error(T.errors.notConnected);
+    // A request still in flight after its answer to Gladys (a slow cloud, up
+    // to 20 s): refused at once, never queued behind it (Gladys gives up at
+    // 5 s, and the command must never run after that).
+    if (this.inFlight) throw new Error(T.errors.inFlight);
     const generation = this.generation;
-    // job.tail: the request still in flight once Gladys was answered (4.3 s);
-    // the next command waits for its real end, not only for the answer.
+    // job.tail: this command's request, when still in flight once Gladys was answered.
     const job = { tail: null };
     const run = this.commands.then(() =>
       this.command(received, { client, generation, job, ...request }),
     );
-    this.commands = run.catch(() => {}).then(() => job.tail);
+    this.commands = run.catch(() => {});
     return run;
   }
 
@@ -748,6 +753,8 @@ export class NexiaApp {
     };
     try {
       this.stillValid(request);
+      // Queued behind a command whose request outlived its answer: refused, never run later.
+      if (this.inFlight) throw new CommandError(T.errors.inFlight);
       const deadline = received + COMMAND_BUDGET_MS;
       if (deadline - this.now() < COMMAND_MIN_READ_MS) throw new CommandError(T.errors.tooSlow);
       let json;
@@ -927,11 +934,21 @@ export class NexiaApp {
           await this.shared(err, generation);
           if (generation === this.generation && client === this.client) this.readSoon(generation);
         })
-        .catch((err) => this.logger.error(`Command follow-up failed: ${err?.message ?? 'error'}`));
+        .catch((err) => this.logger.error(`Command follow-up failed: ${err?.message ?? 'error'}`))
+        .finally(() => {
+          if (this.inFlight === job.tail) this.inFlight = null;
+        });
+      this.inFlight = job.tail;
       return;
     }
     const { err } = outcome;
     await this.shared(err, generation);
+    if (err?.code === CODES.NETWORK) {
+      // The connection may have dropped after the request left: it may or may
+      // not have reached the cloud. Read again soon to show what is true.
+      if (generation === this.generation && client === this.client) this.readSoon(generation);
+      throw new CommandError(T.errors.maybeNotSent, { cause: err });
+    }
     if (err?.notSent) throw new CommandError(T.errors.notSent(err), { cause: err });
     throw new CommandError(T.errors.refused(err), { cause: err });
   }

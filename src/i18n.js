@@ -173,6 +173,11 @@ export const T = {
     notSent: (err) =>
       `The command could not reach the cloud (${reasonOf(err).en}): nothing was sent`,
     refused: (err) => `The cloud refused the command (${reasonOf(err).en})`,
+    inFlight:
+      'The previous command is still being applied by the cloud: nothing was sent, try again in a few seconds / ' +
+      'La commande précédente est encore en cours dans le cloud : rien n’a été envoyé, réessayez dans quelques secondes',
+    maybeNotSent:
+      'The connection to the cloud dropped: the command may not have reached it; the thermostat is read again in a few seconds',
     configChanged: 'The configuration changed meanwhile: nothing was sent, try again',
     busy: 'The cloud asked Gladys to slow down: nothing was sent, try again later',
     testTooLong:

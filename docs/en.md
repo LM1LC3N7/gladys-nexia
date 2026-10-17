@@ -81,7 +81,10 @@ thermostat) and the Thermostat service of Gladys change:
 Before each command Gladys reads the thermostat again: if it is offline, if
 the zone is gone or if the value is already there, nothing is sent. One
 command at a time: a slow cloud may take up to 20 seconds; Gladys shows the
-command as sent after 4 seconds, and the next one waits. There is never a
+command as sent after 4 seconds, and a command arriving meanwhile is refused
+at once (try again a few seconds later). A dropped connection during a
+command is reported as "may not have reached the cloud", and the thermostat
+is read again. There is never a
 switch to turn the heating off: "turn everything off" in Gladys does not
 touch the thermostats.
 

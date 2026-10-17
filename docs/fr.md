@@ -86,8 +86,10 @@ changer :
 Avant chaque commande, Gladys relit le thermostat : s’il est hors ligne, si
 la zone a disparu ou si la valeur est déjà la bonne, rien n’est envoyé. Une
 commande à la fois : un cloud lent peut mettre jusqu’à 20 secondes ; Gladys
-affiche la commande comme envoyée au bout de 4 secondes, et la suivante
-attend. Il n’y a jamais d’interrupteur pour couper le chauffage : « tout
+affiche la commande comme envoyée au bout de 4 secondes, et une commande
+arrivée entre-temps est refusée tout de suite (réessayez quelques secondes
+plus tard). Une connexion coupée pendant une commande est signalée comme
+« n’a peut-être pas atteint le cloud », et le thermostat est relu. Il n’y a jamais d’interrupteur pour couper le chauffage : « tout
 éteindre » dans Gladys ne touche pas aux thermostats.
 
 Une consigne changée ainsi peut ne tenir que jusqu’au prochain créneau du
