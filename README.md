@@ -69,7 +69,8 @@ Gladys ⇄ SDK ⇄ src/app.js (NexiaApp)
   the cloud", read again 10 s later. The address a thermostat gives for a setting is used on the
   host of the brand chosen (same path when it names another brand's host, as
   the library's `resolve_url`); a UX360 zone without its own address is
-  refused, never sent to an `xxl_zones` path.- **Reconnection to Gladys**: the status, Discovery, states and badges are
+  refused, never sent to an `xxl_zones` path.
+- **Reconnection to Gladys**: the status, Discovery, states and badges are
   published again; the session, a refusal and a 429 pause stay.
 
 ## Development
