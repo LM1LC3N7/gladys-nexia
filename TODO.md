@@ -221,3 +221,7 @@ false`, 401, 422, or a redirect to "forgotten credentials": all are
   e-mail, the password or the api key.
 - **Duplicates**: checked by the pipeline before the batch (forum thread
   10385, store, Gladys core, GitHub), not again in this session.
+
+## Next patch (review minmax-cvc-r1, minors)
+
+- [ ] `test/helpers/coreFeature.js` (or the features test): put back the checks that supported options only have `label`, `sort_order`, `value`, and that `sort_order` is an integer (today only enforced through the core clone, not on GitHub CI).
