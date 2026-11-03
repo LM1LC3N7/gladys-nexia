@@ -78,6 +78,16 @@ false`, 401, 422, or a redirect to "forgotten credentials": all are
 
 ## Decisions
 
+- **The fan list carries min 0 and max 0** (2026-11-03): Gladys stores
+  `min`/`max` as not null for every feature, text/select included (HTTP 422
+  and the whole device refused otherwise; the SDK fake Gladys does not check
+  it). 0/0 like toshiba-ac and most text/select integrations.
+  test/devices.test.js checks every feature of every thermostat and zone shape
+  (fixtures and each optional part) against the core model
+  (test/helpers/coreFeature.js; the core's own lists and
+  normalizeSupportedOptions when its clone is on the machine).
+- **SDK 0.16** (2026-11-03): `should_poll: false` and no `poll_frequency`, so
+  Gladys 5.3 does not poll the devices.
 - **Version**: 0.1.0 set by hand in `package.json`, `package-lock.json`, the
   manifest and the `docker_image` tag (the one-time exception to "versions
   belong to the Release workflow", the template's 1.0.0 and image name had to

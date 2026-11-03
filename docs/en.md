@@ -91,6 +91,14 @@ touch the thermostats.
 A setpoint changed this way may hold until the next step of the schedule of
 the thermostat, as in the app.
 
+## Troubleshooting
+
+- **"HTTP 422 … t_device_feature.min cannot be null"** when adding a
+  thermostat (versions 0.1.2 and earlier): Gladys refused the "Fan mode" list,
+  and with it the whole device. Update the integration, then add the
+  thermostat again from the **Discovery** tab. Gladys saved nothing of the
+  refused device: there is nothing to delete.
+
 ## Limits
 
 - HTTP 429 (too many requests): every request waits (2 minutes to 6 hours),

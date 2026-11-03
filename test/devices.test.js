@@ -16,6 +16,8 @@ import {
   zoneStates,
 } from '../src/devices.js';
 import { thermostatsOf } from '../src/nexia/model.js';
+import { BRANDS } from '../src/constants.js';
+import { assertCoreDevice } from './helpers/coreFeature.js';
 import { fixture } from './helpers/fakeCloud.js';
 
 const gladys = createFakeGladys({ selector: 'nexia' });
@@ -178,4 +180,98 @@ test('external ids', () => {
   assert.equal(parseExternalId(gladys, 'ext:nexia:zone:1:mode:x'), null);
   assert.equal(parseExternalId(gladys, 'ext:other:zone:1'), null);
   assert.equal(parseExternalId(gladys, 42), null);
+});
+
+// --- Every feature passes the Gladys model ------------------------------------
+// A null min or max makes Gladys answer HTTP 422 and refuse the whole device
+// when the user adds it (the fan list had none up to 0.1.2); the SDK's fake
+// Gladys does not check it.
+
+const FIXTURES = [
+  'grouped_xl850',
+  'issue_79891',
+  'mobile_house_xl624',
+  'single_zone_xl1050',
+  'system_offline',
+  'two_ux360_multizone',
+];
+const FANS = [
+  [],
+  [{ value: 'auto', label: 'Auto' }],
+  [
+    { value: 'auto', label: 'Auto' },
+    { value: 'on', label: 'On' },
+    { value: 'circulate', label: 'Circulate' },
+    { value: 'eco_mode', label: 'Eco mode' },
+  ],
+];
+const ZONE_MODES = [
+  [[], null],
+  [[], 'HEAT'],
+  [[{ value: 'HEAT', label: 'Heating', mode: 'HEAT' }], 'HEAT'],
+  [['AUTO', 'COOL', 'HEAT', 'OFF'].map((mode) => ({ value: mode, label: mode, mode })), 'OFF'],
+];
+const NO_LIMITS = { heatMin: null, heatMax: null, coolMin: null, coolMax: null };
+
+/** Every thermostat and zone shape: the fixtures, then each optional part on or off. */
+function* everyThermostat() {
+  for (const name of FIXTURES) {
+    yield* thermostatsOf(fixture(name)).thermostats;
+  }
+  const base = first('grouped_xl850');
+  const zone = base.zones[0];
+  for (let combo = 0; combo < 16; combo += 1) {
+    for (const unit of ['C', 'F']) {
+      for (const options of FANS) {
+        yield {
+          ...base,
+          id: `9${combo}`,
+          unit,
+          model: combo % 2 ? null : base.model,
+          hasHumidity: Boolean(combo & 1),
+          hasOutdoor: Boolean(combo & 2),
+          hasHumidify: Boolean(combo & 4),
+          hasDehumidify: Boolean(combo & 8),
+          fan: options.length > 0 ? { ...base.fan, options } : null,
+          zones: ZONE_MODES.flatMap(([modeOptions, mode], i) =>
+            [zone.limits, NO_LIMITS].map((limits, j) => ({
+              ...zone,
+              id: `9${combo}_${i}${j}`,
+              modeOptions,
+              mode,
+              limits,
+            })),
+          ),
+        };
+      }
+    }
+  }
+}
+
+test('every feature of every buildable thermostat and zone has what the Gladys model needs', () => {
+  let devices = 0;
+  const check = (device, where) => {
+    assertCoreDevice(device, where);
+    // Published again over the device as Gladys created it.
+    assertCoreDevice(mergeWithCreated(device, device), `${where} created`);
+    devices += 1;
+  };
+  for (const thermostat of everyThermostat()) {
+    for (const language of ['en', 'fr']) {
+      for (const brand of Object.keys(BRANDS)) {
+        const where = `${thermostat.id}/${thermostat.unit}/${language}/${brand}`;
+        check(buildThermostatDevice(gladys, thermostat, language, brand), where);
+      }
+      for (const zone of thermostat.zones) {
+        check(buildZoneDevice(gladys, thermostat, zone, language), `zone ${zone.id}/${language}`);
+      }
+    }
+  }
+  assert.ok(devices > 16 * 2 * 3 * 2 * (3 + 8));
+});
+
+test('the fan list has min 0 and max 0, like the other text/select features of Gladys', () => {
+  const device = buildThermostatDevice(gladys, first('grouped_xl850'), 'fr');
+  const fan = device.features.find((f) => f.external_id.endsWith(':fan-mode'));
+  assert.deepEqual([fan.category, fan.type, fan.min, fan.max], ['text', 'select', 0, 0]);
 });

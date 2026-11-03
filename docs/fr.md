@@ -95,6 +95,14 @@ plus tard). Une connexion coupée pendant une commande est signalée comme
 Une consigne changée ainsi peut ne tenir que jusqu’au prochain créneau du
 programme du thermostat, comme dans l’application.
 
+## Dépannage
+
+- **« HTTP 422 … t_device_feature.min ne peut pas être nul »** en ajoutant un
+  thermostat (versions 0.1.2 et antérieures) : Gladys refusait la liste
+  « Ventilation », et avec elle tout l’appareil. Mettez l’intégration à jour,
+  puis ajoutez de nouveau le thermostat depuis l’onglet **Découverte**. Gladys
+  n’avait rien enregistré de l’appareil refusé : il n’y a rien à supprimer.
+
 ## Limites
 
 - HTTP 429 (trop de requêtes) : toutes les requêtes attendent (2 minutes à

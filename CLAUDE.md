@@ -8,8 +8,8 @@ contributors.
 A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
 no build step) that runs in its own sandboxed Docker container and talks to
 Gladys through
-[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+[`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js)
+(v0.16), its only runtime dependency. It started from the official JavaScript template.
 
 It brings Trane Nexia, Trane Home and American Standard Home (Asair)
 thermostats into Gladys through the unofficial API of their app (the cloud
