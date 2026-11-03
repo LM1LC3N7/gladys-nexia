@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-03
+
 ### Fixed
 
 - Adding a thermostat failed with "HTTP 422 … t_device_feature.min cannot be
@@ -54,6 +56,7 @@ the notes of the version's GitHub Release.
   (a forced sign-in at most once a minute after a refusal).
 - Button "Test the connection".
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-nexia/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-nexia/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/LM1LC3N7/gladys-nexia/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/LM1LC3N7/gladys-nexia/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/LM1LC3N7/gladys-nexia/releases/tag/v0.1.1
